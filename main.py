@@ -1,22 +1,24 @@
 #!/usr/bin/env python
-from ghost import Ghost
 import cookielib
 import urllib
 import urllib2
-from lxml import html
-import pickle
 import os
 import sys
 import re
+import mechanize
+from collections import defaultdict
 
 class AuthError(Exception):
 	pass
 
-class EmailCreator:
+class EmailAccountCreator:
 	
 	loginURL = 'https://clientes.1and1.es/xml/config/Login'
-	createEmailURL = '	https://clientes.1and1.es:443/xml/config/Email_Committed'
+	createEmailURL = 'https://clientes.1and1.es/xml/config/Email_EditTargets'
+	#Location: https://clientes.1and1.es:443/xml/config/Email_Committed;jsessionid=A4FA8A68D788FE0736C16807F79E126D.TCpfix311b?__reuse=1352917068690&__frame=&__lf=email_create_flow
+
 	userAgent = 'Mozilla/6.0 (Windows NT 6.2; WOW64; rv:16.0.1) Gecko/20121011 Firefox/16.0.1'
+	clientContract = "41265403"
 	loginformdata = {"__SBMT:d0e672d1": "",
 						"__lf": "HomeFlow",
 						"__sendingauthdata": 1,
@@ -53,110 +55,122 @@ class EmailCreator:
 						"target.Type.0":"mbox"
 						}
 
-	def __init__(self, cookie):
-		self.headers = {}		
+	
+	def __init__(self):
+		self.headers = {'User-Agent' : EmailAccountCreator.userAgent}		
 		self.jsessionid = None
-		self.cookieFile = cookie
-		self.getGhostPage()
-		self.authenticate()
-		
-	def setUpCookiesAndUserAgent(self):
-	
-		self.ghost = None
-		cookieJar = cookielib.LWPCookieJar()
-		opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookieJar))
-		opener.addheaders = [('User-Agent', EmailCreator.userAgent)]
-		urllib2.install_opener(opener)
-	
-		self.loadCookiesFromFile(cookieJar)
-	
-		try:
-			self.authenticate()
-			print "using cookie"
-		except AuthError:
-			self.getFreshCookies()
-
-	def loadCookiesFromFile(self, cookieJar):
-		try:
-			cookieJar.load(self.cookieFile)
-		except IOError:
-			self.authenticate()
-			cookieJar.save(self.cookieFile)
-
-	def getFreshCookies(self):
-		cookieJar = cookielib.LWPCookieJar()
-		opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookieJar))
-		opener.addheaders = [('User-Agent', EmailCreator.userAgent)]
-		urllib2.install_opener(opener)
-		self.authenticate()
-		cookieJar.save(self.cookieFile)
-		print "new cookie created"
-		
-	def setCookie(self, response):
-		print "creating cookie"
-		f = open('cookie', 'w')
-		try:
-			cookie = dict(response.headers)['set-cookie']
-			session = re.search("__.+=[^;]+", cookie).group(0)
-			session = session[0:session.find(";")]
-			self.headers["Cookie"] = session
-			pickle.dump(self.headers, f)
-			
-		except (KeyError, AttributeError):
-			f.close()
-			os.remove('cookie')
-			self.headers = None
-			raise Exception("Login failed, most likely bad creds or the site is down, nothing to do")
-		f.close()	
-		
-	def authenticate(self):
-		data = urllib.urlencode(EmailCreator.loginformdata)
-		request = urllib2.Request(EmailCreator.loginURL + ";" + self.jsessionid, data)
-		response = urllib2.urlopen(request)
-		self.checkIfAuthenticated(response)
+		self.referer = None
 				
 				
 	def createEmailAccount(self):
-		if self.ghost is None:
-			self.ghost = Ghost()
-		page, extra_resources = self.ghost.open("https://clientes.1and1.es/xml/config/Email_EditTargets" + ";" + self.jsessionid)
-		result, resources = self.ghost.fill("form", EmailCreator.createemailformdata)
-		page, resources = self.ghost.fire_on("form", "submit", expect_loading=True)
-		print page.url
-		
-		
-	def createEmail(self):
-		data = urllib.urlencode(EmailCreator.createemailformdata)
-		request = urllib2.Request(EmailCreator.createEmailURL + ";" + self.jsessionid, data)
+		data = urllib.urlencode(EmailAccountCreator.createemailformdata)		
+		headers = {"Host": "clientes.1and1.es",
+				   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				   "Connection" : "keep-alive",
+				   "Referer" : self.referer,
+				   "Content-Type": "application/x-www-form-urlencoded",
+				   "Content-Length" : len(data)
+				   }
+		redirectionHandler = urllib2.HTTPRedirectHandler()
+		opener = urllib2.build_opener(redirectionHandler)
+		urllib2.install_opener(opener)
+		request = urllib2.Request(EmailAccountCreator.createEmailURL + ";" + self.jsessionid + "?__frame=", data, headers)
 		response = urllib2.urlopen(request)
-		self.checkIfEmailCreated(response)	
+		responsebody = re.sub('<script type="text/javascript">[^<]+</script>', '', response.read())
 
-	def checkIfAuthenticated(self, response):
-		page = html.parse(response).getroot()
-		#print html.tostring(page)
-		if ('Panel de Control' not in page.xpath('head/title/text()')[0]):
-		  raise AuthError('Login page returned, not logged in')
+		if "finalizada" in responsebody:
+			print "email account created ok!"
+			with open("okresponse.html", "a") as f:
+				f.write(responsebody)				
 		else:
-			self.createEmail()
-
-	def checkIfEmailCreated(self, response):
-		page = html.parse(response).getroot()
-		print html.tostring(page)
+			print "error while creating the account"
+			with open("errorresponse.html", "a") as f:
+				f.write(responsebody)
+				
+	def getFormData(self):
+		br = mechanize.Browser()
+		
+		# Cookie Jar
+		#cj = cookielib.LWPCookieJar()
+		#br.set_cookiejar(cj)
+		
+		# Browser options
+		br.set_handle_equiv(True)
+		br.set_handle_gzip(True)
+		br.set_handle_redirect(True)
+		br.set_handle_referer(True)
+		br.set_handle_robots(False)		
+		
+		# Follows refresh 0 but not hangs on refresh > 0
+		#br.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(), max_time=1)
+		
+		# Want debugging messages?
+		br.set_debug_http(True)
+		br.set_debug_redirects(True)
+		br.set_debug_responses(True)				
+		
+		br.open(EmailAccountCreator.createEmailURL + ";" + self.jsessionid)
+		br.form = list(br.forms())[0]
+		
+		control = br.form.find_control("address.Domainname")
+		control.value = ["augc.info"]
+		control = br.form.find_control("address.Localpart")
+		control.value = "prueba26"
+		control = br.form.find_control("mbox.Password.0")
+		control.value = "1234567"
+		control = br.form.find_control("mbox.PasswordRepeated.0")
+		control.value = "1234567"
+		control = br.form.find_control("ox.DisplayName.0")
+		control.value = "pr26"
+		control = br.form.find_control("ox.DisplayName.0")
+		control.value = "buhbaho"
+		control = br.form.find_control("ox.FirstName.0")
+		control.value = "afadfa"
+		control = br.form.find_control("ox.LastName.0")
+		control.value = "dddddd"
+		control = br.form.find_control("target.Type.0")
+		control.value = ["mbox"]	
+	
+		
+		#for control in br.form.controls:
+		#	print ' ', control.type, control.name, repr(control.value)
+		
+		response = br.submit()
+		content = response.get_data()		
+		with open("buh.html", "a") as f:
+			f.write(content)	
 		quit()
-		if (page.xpath('head/title/text()')[0] != '1&1 Panel de Control'):
-		  raise AuthError('Login page returned, not logged in')
-		else:
-			self.createEmail()
 			
-	def getGhostPage(self):
-		self.ghost = Ghost()
-		page, extra_resources = self.ghost.open("https://clientes.1and1.es/xml/config/Login")
-		if page.http_status==200 and 'Acceso a su' in self.ghost.content:
-			urlstring = str(page.url)
-			self.jsessionid = urlstring[urlstring.find(";")+1:]			
+	def authenticate(self):
+		data = urllib.urlencode(EmailAccountCreator.loginformdata)
+		request = urllib2.Request(EmailAccountCreator.loginURL + ";" + self.jsessionid, data)
+		response = urllib2.urlopen(request)
+		url = response.geturl()
+		responsebody = response.read() 
+		if EmailAccountCreator.clientContract in responsebody:
+			print "authenticated to 1and1"
+			self.referer = url[url.find(";")+1:]
+			#self.jsessionid = url[url.find(";")+1:]			
+			self.getFormData()
+		else:
+			print "cannot login to 1and1"
+			
+			
+	def getLoginPage(self):
+		request = urllib2.Request(EmailAccountCreator.loginURL)
+		response = urllib2.urlopen(request)
+		url = response.geturl()
+		if "Panel de Control" in response.read():
+			self.jsessionid = url[url.find(";")+1:]
+			print "attempting to authenticate to server..."
+			self.authenticate()
+		else:
+			print "cannot connect to login page"
+		
 		
 if __name__ == "__main__":
 	
-	emailcreator = EmailCreator("cookie")
-	print emailcreator.jsessionid
+	emailcreator = EmailAccountCreator()
+	emailcreator.getLoginPage()
+	#print emailcreator.jsessionid
 
