@@ -1,25 +1,25 @@
 #1and1EmailCreator
+---
 
-A python module for automated 1and1 email accounts creation
+## A python module for automated 1and1 email accounts creation
 
 
 Getting started:
 
-<pre>
-import oneandoneemailcreator
+```python
 
-emaildata = {'domainname':'domainname.com',
-            'emailusername':'john.smith', 
-            'emaildisplayname' : 'john smith', 
-            'emailfirstname':'john', 
-            'emaillastname':'smith',
-            'emailpassword':'emailuserpass',
-            'oneandoneuser': 'server.com' #domain name or client id,
-            'oneandonepassword' : 'ultrasecretpass'
-            }
-# create an instance of 1and1EmailCreator
-emailcreator = oneandoneemailcreator.EmailAccountCreator(emaildata)
-# create account
-emailcreator.createAccount()	
-
-</pre>
+	#!/usr/bin/env python
+	# coding=utf-8
+    import oneandoneemailcreator
+    
+    emaildata = {
+                'emailusername':'john.smith', 
+                'emaildisplayname' : 'john smith', 
+                'emailfirstname':'john', 
+                'emaillastname':'smith',
+                'emailpassword':'emailuserpass'
+                }
+    # create an instance of 1and1EmailCreator
+	emailcreator = oneandoneemailcreator.EmailAccountCreator('clientdomain.com', '1and1clientSecretePass')
+	emailcreator.createAccount(emaildata) 	
+```	
