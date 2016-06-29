@@ -13,7 +13,7 @@ Getting started:
     import oneandoneemailcreator
     
     emaildata = {
-    		'domainname': 'example.com',
+    			'domainname': 'example.com',
                 'emailusername':'john.smith', 
                 'emaildisplayname' : 'john smith', 
                 'emailfirstname':'john', 
